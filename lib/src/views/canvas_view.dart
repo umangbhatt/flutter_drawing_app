@@ -1,12 +1,18 @@
+import 'dart:io';
+
+import 'package:file_saver/file_saver.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_drawing_app_sample/src/models/rectangle_model.dart';
 import 'package:flutter_drawing_app_sample/src/utils/painters/rectangle_painter.dart';
 import 'package:dxf/dxf.dart';
-import 'dart:html' as html;
+import 'package:flutter_mailer/flutter_mailer.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:permission_handler/permission_handler.dart';
+
 import 'dart:convert';
 
 import 'package:flutter_drawing_app_sample/src/views/widgets/draggable_rectangle.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 class CanvasView extends StatefulWidget {
   const CanvasView({super.key});
@@ -28,129 +34,141 @@ class _CanvasViewState extends State<CanvasView> {
   // 1 px = 0.2 inches
   double measurementScale = 0.2;
   // canvas size in inches
-  Size scaledCanvasSize = const Size(200, 200);
+  Size get scaledCanvasSize => canvasSize * measurementScale;
   // canvas size in pixels
-  Size get canvasSize => scaledCanvasSize / measurementScale;
+
+  Size canvasSize = Size.zero;
+
+  bool isMobileView = false;
 
   @override
   Widget build(BuildContext context) {
+    isMobileView = MediaQuery.of(context).size.width < 500;
+
     return Scaffold(
       backgroundColor: Colors.grey,
       bottomNavigationBar: buildBottomAppBar(),
       body: Padding(
         padding: const EdgeInsets.all(32.0),
         child: Center(
-          child: SizedBox(
-            width: canvasSize.width,
-            height: canvasSize.height,
-            child: Stack(
-              children: [
-                //base canvas with GestureDetector to draw rectangles
-                Positioned.fill(
-                  child: Container(
-                    color: Colors.white,
-                    child: fixedHeight == 0
-                        ? const SizedBox.expand()
-                        : GestureDetector(
-                            behavior: HitTestBehavior.opaque,
-                            onHorizontalDragStart: (details) {
-                              setState(() {
-                                start = details.localPosition;
-                                start = Offset(
-                                    start!.dx, start!.dy - fixedHeight / 2);
-                                width = 0;
-                              });
-                            },
-                            onHorizontalDragUpdate: (details) {
-                              if (start == null) return;
-                              setState(() {
-                                double diff =
-                                    details.localPosition.dx - start!.dx;
-                                if (diff < 0) {
+          child: LayoutBuilder(builder: (context, constraints) {
+            canvasSize = Size(constraints.maxWidth, constraints.maxHeight);
+
+            return SizedBox(
+              width: canvasSize.width,
+              height: canvasSize.height,
+              child: Stack(
+                children: [
+                  //base canvas with GestureDetector to draw rectangles
+                  Positioned.fill(
+                    child: Container(
+                      color: Colors.white,
+                      child: fixedHeight == 0
+                          ? const SizedBox.expand()
+                          : GestureDetector(
+                              behavior: HitTestBehavior.opaque,
+                              onHorizontalDragStart: (details) {
+                                setState(() {
+                                  start = details.localPosition;
+                                  start = Offset(
+                                      start!.dx, start!.dy - fixedHeight / 2);
                                   width = 0;
-                                } else {
-                                  width = diff;
-                                }
-                              });
-                            },
-                            onHorizontalDragEnd: (details) {
-                              if (start != null && width > 0) {
-                                if (!checkOverlapOrOutOfBounds(RectangleModel(
-                                    start: start!,
-                                    width: width,
-                                    height: fixedHeight))) {
-                                  rectangles.add(
-                                    RectangleModel(
-                                      id: DateTime.now().millisecondsSinceEpoch,
+                                });
+                              },
+                              onHorizontalDragUpdate: (details) {
+                                if (start == null) return;
+                                setState(() {
+                                  double diff =
+                                      details.localPosition.dx - start!.dx;
+                                  if (diff < 0) {
+                                    width = 0;
+                                  } else {
+                                    width = diff;
+                                  }
+                                });
+                              },
+                              onHorizontalDragEnd: (details) {
+                                if (start != null && width > 0) {
+                                  if (!checkOverlapOrOutOfBounds(RectangleModel(
                                       start: start!,
                                       width: width,
-                                      height: fixedHeight,
-                                    ),
-                                  );
+                                      height: fixedHeight))) {
+                                    rectangles.add(
+                                      RectangleModel(
+                                        id: DateTime.now()
+                                            .millisecondsSinceEpoch,
+                                        start: start!,
+                                        width: width,
+                                        height: fixedHeight,
+                                      ),
+                                    );
+                                    fixedHeight = 0;
+                                  }
+                                  start = null;
+                                  width = 0;
+
+                                  setState(() {});
                                 }
-                                start = null;
-                                width = 0;
-                                fixedHeight = 0;
+                              },
+                              child: Builder(builder: (context) {
+                                if (start == null || width == 0) {
+                                  return const SizedBox.expand();
+                                }
 
-                                setState(() {});
-                              }
-                            },
-                            child: Builder(builder: (context) {
-                              if (start == null || width == 0) {
-                                return const SizedBox.expand();
-                              }
-
-                              return CustomPaint(
-                                painter: RectanglePainter(
-                                  measurementScale: measurementScale,
-                                  showMeasurements: true,
-                                  start: start!,
-                                  width: width,
-                                  height: fixedHeight,
-                                  color: Colors.black,
-                                ),
-                              );
-                            }),
-                          ),
+                                return CustomPaint(
+                                  painter: RectanglePainter(
+                                    measurementScale: measurementScale,
+                                    showMeasurements: true,
+                                    start: start!,
+                                    width: width,
+                                    height: fixedHeight,
+                                    color: Colors.black,
+                                  ),
+                                );
+                              }),
+                            ),
+                    ),
                   ),
-                ),
-                //drawn rectangles
-                ...(rectangles).map((element) {
-                  return DraggableRectangle(
-                    key: UniqueKey(),
-                    measurementScale: measurementScale,
-                    start: element.start,
-                    width: element.width,
-                    height: element.height,
-                    onDragEnd: (newOffset) {
-                      final newElement = element.copyWith(start: newOffset);
-                      if (!checkOverlapOrOutOfBounds(newElement)) {
+                  //drawn rectangles
+                  ...(rectangles).map((element) {
+                    return DraggableRectangle(
+                      key: UniqueKey(),
+                      measurementScale: measurementScale,
+                      start: element.start,
+                      width: element.width,
+                      height: element.height,
+                      onDragEnd: (newOffset) {
                         final newElement = element.copyWith(start: newOffset);
-                        final index = rectangles.indexOf(element);
-                        rectangles[index] = newElement;
-                      }
-                      setState(() {});
-                    },
-                    onResize: (offsetChange, newWidth, newHeight) {
-                      Offset newStart = element.start + offsetChange;
-                      final newElement = element.copyWith(
-                          start: newStart, width: newWidth, height: newHeight);
-                      if (!checkOverlapOrOutOfBounds(newElement)) {
+                        if (!checkOverlapOrOutOfBounds(newElement)) {
+                          final newElement = element.copyWith(start: newOffset);
+                          final index = rectangles.indexOf(element);
+                          rectangles[index] = newElement;
+                        }
+                        setState(() {});
+                      },
+                      onResize: (offsetChange, newWidth, newHeight) {
+                        Offset newStart = element.start + offsetChange;
                         final newElement = element.copyWith(
                             start: newStart,
                             width: newWidth,
                             height: newHeight);
-                        final index = rectangles.indexOf(element);
-                        rectangles[index] = newElement;
-                      }
+                        if (!checkOverlapOrOutOfBounds(newElement)) {
+                          final newElement = element.copyWith(
+                              start: newStart,
+                              width: newWidth,
+                              height: newHeight);
+                          final index = rectangles.indexOf(element);
+                          rectangles[index] = newElement;
+                        }
 
-                      setState(() {});
-                    },
-                  );
-                }).toList(),
-              ],
-            ),
-          ),
+                        setState(() {});
+                      },
+                    );
+                  }).toList(),
+                ],
+              ),
+            );
+          }),
         ),
       ),
     );
@@ -159,16 +177,19 @@ class _CanvasViewState extends State<CanvasView> {
   BottomAppBar buildBottomAppBar() {
     return BottomAppBar(
       child: fixedHeight != 0
-          ? Align(
-              alignment: AlignmentDirectional.centerEnd,
-              child: TextButton(
-                onPressed: () {
-                  setState(() {
-                    fixedHeight = 0;
-                  });
-                },
-                child: const Text('Cancel'),
-              ),
+          ? Row(
+              children: [
+                const Text('Drag to draw a rectangle'),
+                const Spacer(),
+                TextButton(
+                  onPressed: () {
+                    setState(() {
+                      fixedHeight = 0;
+                    });
+                  },
+                  child: const Text('Cancel'),
+                ),
+              ],
             )
           : Row(
               children: [
@@ -188,19 +209,42 @@ class _CanvasViewState extends State<CanvasView> {
                   },
                   child: const Text('New Island'),
                 ),
-                TextButton(
-                  onPressed: () {
-                    setState(() {
-                      fixedHeight = 0;
-                      rectangles.clear();
-                    });
-                  },
-                  child: const Text('Clear All'),
-                ),
-                TextButton(
-                  onPressed: showExportOptions,
-                  child: const Text('Export'),
-                )
+                if (isMobileView) ...[
+                  const Spacer(),
+                  PopupMenuButton(
+                      child: const Icon(Icons.more_vert),
+                      itemBuilder: (context) {
+                        return [
+                          PopupMenuItem(
+                            onTap: showExportOptions,
+                            child: const Text('Export'),
+                          ),
+                          PopupMenuItem(
+                            child: const Text('Clear All'),
+                            onTap: () {
+                              setState(() {
+                                fixedHeight = 0;
+                                rectangles.clear();
+                              });
+                            },
+                          ),
+                        ];
+                      })
+                ] else ...[
+                  TextButton(
+                    onPressed: () {
+                      setState(() {
+                        fixedHeight = 0;
+                        rectangles.clear();
+                      });
+                    },
+                    child: const Text('Clear All'),
+                  ),
+                  TextButton(
+                    onPressed: showExportOptions,
+                    child: const Text('Export'),
+                  )
+                ]
               ],
             ),
     );
@@ -220,6 +264,7 @@ class _CanvasViewState extends State<CanvasView> {
         newRect.top < 0 ||
         newRect.right > canvasSize.width ||
         newRect.bottom > canvasSize.height) {
+      showSnackbar('Rectangle out of bounds');
       return true; // Out of bounds
     }
 
@@ -239,6 +284,7 @@ class _CanvasViewState extends State<CanvasView> {
       );
 
       if (newRect.overlaps(existingRect)) {
+        showSnackbar('Rectangles overlap');
         return true; // Overlaps with existing rectangle
       }
     }
@@ -256,35 +302,73 @@ class _CanvasViewState extends State<CanvasView> {
             mainAxisSize: MainAxisSize.min,
             children: [
               TextButton(
-                onPressed: () {
+                onPressed: () async {
                   final dxf = exportDXF();
-                  final blob =
-                      html.Blob([dxf.dxfString], 'text/plain;charset=utf-8');
-                  final url = html.Url.createObjectUrlFromBlob(blob);
-                  final anchor = html.AnchorElement(href: url)
-                    ..setAttribute('download', 'drawing.dxf');
-                  anchor.click();
-                  html.Url.revokeObjectUrl(url);
-                  Navigator.pop(context);
+
+                  if (kIsWeb) {
+                    await FileSaver.instance.saveFile(
+                      name: 'drawing',
+                      bytes: utf8.encode(dxf.dxfString),
+                      ext: 'dxf',
+                    );
+                  } else {
+                    bool status = await Permission.storage.isGranted;
+                    if (Platform.isAndroid) {
+                      status = await Permission.manageExternalStorage.isGranted;
+                    }
+
+                    if (!status) {
+                      status = (await Permission.storage.request()).isGranted;
+                      if (Platform.isAndroid) {
+                        status =
+                            (await Permission.manageExternalStorage.request())
+                                .isGranted;
+                      }
+                    }
+
+                    if (!status) {
+                      showSnackbar('Permission denied');
+                      return;
+                    }
+
+                    await FileSaver.instance.saveAs(
+                        name: 'drawing',
+                        ext: 'dxf',
+                        mimeType: MimeType.custom,
+                        customMimeType: 'image/x-dxf',
+                        bytes: utf8.encode(dxf.dxfString));
+                  }
+
+                  if (mounted) {
+                    Navigator.pop(context);
+                  }
                 },
                 child: const Text('Export to DXF'),
               ),
-              TextButton(
-                onPressed: () {
-                  final dxf = exportDXF();
-                  final dxfContent = dxf.dxfString;
-                  final bytes = utf8.encode(dxfContent);
-                  final base64Data = base64.encode(bytes);
-                  const emailBody = 'Here is the DXF file attachment.';
-                  const subject = 'DXF File Attachment';
-                  final emailLink = Uri.encodeFull(
-                    'mailto:?subject=$subject&body=$emailBody&attachment=data:application/octet-stream;base64,$base64Data',
-                  );
-                  launchUrl(Uri.parse(emailLink));
-                  Navigator.pop(context);
-                },
-                child: const Text('Email DXF'),
-              ),
+              if (!kIsWeb)
+                TextButton(
+                  onPressed: () async {
+                    final dxf = exportDXF();
+
+                    final directory = await getApplicationDocumentsDirectory();
+                    final path = '${directory.path}/drawing.dxf';
+                    final file = File(path);
+                    await file.writeAsString(dxf.dxfString);
+
+                    final MailOptions mailOptions = MailOptions(
+                      subject: 'DXF file',
+                      attachments: [path],
+                      isHTML: false,
+                    );
+
+                    await FlutterMailer.send(mailOptions);
+
+                    if (mounted) {
+                      Navigator.pop(context);
+                    }
+                  },
+                  child: const Text('Email DXF'),
+                ),
             ],
           ),
         );
@@ -319,5 +403,14 @@ class _CanvasViewState extends State<CanvasView> {
       dxf.addEntities(polyline);
     }
     return dxf;
+  }
+
+  void showSnackbar(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        duration: const Duration(seconds: 2),
+      ),
+    );
   }
 }
