@@ -10,15 +10,15 @@ class DraggableRectangle extends StatefulWidget {
   final Function(Offset, double, double) onResize;
   final double measurementScale;
 
-  const DraggableRectangle(
-      {required Key key,
-      required this.start,
-      required this.width,
-      required this.height,
-      required this.onDragEnd,
-      required this.onResize,
-      required this.measurementScale})
-      : super(key: key);
+  const DraggableRectangle({
+    Key? key,
+    required this.start,
+    required this.width,
+    required this.height,
+    required this.onDragEnd,
+    required this.onResize,
+    required this.measurementScale,
+  }) : super(key: key);
 
   @override
   _DraggableElementState createState() => _DraggableElementState();
@@ -40,6 +40,15 @@ class _DraggableElementState extends State<DraggableRectangle> {
     position = widget.start;
     width = widget.width;
     height = widget.height;
+  }
+
+  @override
+  void didUpdateWidget(covariant DraggableRectangle oldWidget) {
+    position = widget.start;
+    width = widget.width;
+    height = widget.height;
+    setState(() {});
+    super.didUpdateWidget(oldWidget);
   }
 
   @override

@@ -1,6 +1,4 @@
 import 'package:flutter/material.dart';
-import 'dart:ui' as ui;
-import 'dart:math';
 
 class RectanglePainter extends CustomPainter {
   final Offset start;
@@ -38,7 +36,7 @@ class RectanglePainter extends CustomPainter {
     canvas.drawPath(path, paint);
 
     if (showMeasurements) {
-      // Draw measurements and arrows
+      // Draw measurements
       _drawMeasurements(canvas, start, width, height);
     }
   }
