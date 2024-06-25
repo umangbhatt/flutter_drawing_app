@@ -306,12 +306,14 @@ class _CanvasViewState extends State<CanvasView> {
                   final dxf = exportDXF();
 
                   if (kIsWeb) {
+                    // Save file on web
                     await FileSaver.instance.saveFile(
                       name: 'drawing',
                       bytes: utf8.encode(dxf.dxfString),
                       ext: 'dxf',
                     );
                   } else {
+                    // Request storage permission on Android and iOS
                     bool status = await Permission.storage.isGranted;
                     if (Platform.isAndroid) {
                       status = await Permission.manageExternalStorage.isGranted;
@@ -379,6 +381,9 @@ class _CanvasViewState extends State<CanvasView> {
   DXF exportDXF() {
     final dxf = DXF.create();
     for (var element in rectangles) {
+      //To convert the canvas coordinates to DXF coordinates
+      // we need to flip the y-axis and scale the coordinates because canvas origin is at top left and DXF origin is at bottom left
+
       List<List<double>> points = [
         [
           element.start.dx * measurementScale,
